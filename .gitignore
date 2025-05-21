@@ -1,0 +1,24 @@
+# 🛑 Ignorar entornos virtuales
+venv/
+.env
+*.pyc
+__pycache__/
+
+# 🛑 Ignorar archivos de bases de datos SQLite
+db.sqlite3
+
+# 🛑 Ignorar archivos de migraciones compilados
+migrations/
+
+# 🛑 Ignorar logs y archivos temporales
+*.log
+*.swp
+*.swo
+
+# 🛑 Ignorar configuraciones de IDEs
+.vscode/
+.idea/
+*.iml
+
+# 🛑 Ignorar archivos de configuración de entornos
+.env
