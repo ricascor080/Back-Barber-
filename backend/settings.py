@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -78,7 +79,13 @@ REST_FRAMEWORK = {
     )
 }
 
-
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=365),  # ⚠️ o más, pero no infinito por seguridad
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+}
 AUTH_USER_MODEL = 'accounts.CustomUser' #Se cambia el modelo de usuario por el creado en accounts
 
 
@@ -200,3 +207,14 @@ EMAIL_USE_TLS = True
 # 🌐 CORS
 CORS_ALLOW_ALL_ORIGINS = True  # Permite cualquier origen (Flutter Web en local)
 ALLOWED_HOSTS = ['*']
+# Cargar variables del archivo .env
+load_dotenv()
+# Ahora puedes acceder a las variables de entorno
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+# Configuración de correo
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True

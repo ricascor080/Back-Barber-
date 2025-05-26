@@ -28,7 +28,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
             'first_name', 'last_name', 'is_active',
             'reward_points', 'salary', 'phone_number',
         )
-        read_only_fields = ('id',)
+        read_only_fields = ('id',)  
         extra_kwargs = {
             'password': {'write_only': True},
         }
@@ -72,41 +72,40 @@ class ServiceSerializer(serializers.ModelSerializer):
 # Sección de serializadores para las reservas
 class ReservationSerializer(serializers.ModelSerializer):
     barber_name = serializers.CharField(source='id_barber.first_name', read_only=True)
-    id_client = serializers.IntegerField(source='id_client.id', read_only=True)
+    id_client = serializers.IntegerField(source='id_client.id', read_only=True)  # Añadido para mostrar el email del cliente OPCIONAL NO RECOMENDABLE
+    phone_number = serializers.CharField(source='id_client.phone_number', read_only=True)  # Añadido para mostrar el teléfono del cliente
+    service_name = serializers.CharField(source='id_service.name', read_only=True)  # Añadido para mostrar el nombre del servicio
 
-    _factory = ReservationFactory()
-    _payment_adapter = PaymentAdapter()
+    _factory = ReservationFactory() # Factory para crear reservas
+    _payment_adapter = PaymentAdapter() ## Adaptador para el pago de reservas
 
     class Meta:
         model = Reservation
-        fields = ('id', 'id_barber', 'barber_name', 'id_service', 'date', 'status', 'pay', 'id_client')
-        read_only_fields = ('status', 'barber_name')
+        fields = ('id_barber', 'barber_name', 'id_service', 'service_name', 'date', 'status', 'pay', 'id', "id_client", 'person_name', 'phone_number')
+        read_only_fields = ('barber_name',)
 
     def create(self, validated_data):
+        """Usa el Factory para crear la reserva asignando automáticamente el cliente autenticado"""
         try:
+            # Obtener el cliente autenticado desde el contexto del serializer
             request = self.context.get('request')
             if request and request.user.is_authenticated:
-                client = request.user
+                client = request.user  # El cliente autenticado es el usuario actual
             else:
                 raise serializers.ValidationError({"error": "El usuario debe estar autenticado"})
 
-            validated_data['id_client'] = client
-
-            # Si es una reserva parcial (solo id_service), se permite sin fecha y sin barbero
-            if 'date' not in validated_data:
-                validated_data['date'] = None
-            if 'id_barber' not in validated_data:
-                validated_data['id_barber'] = None
-
+            # Asignar el cliente autenticado al validated_data
+            validated_data['id_client'] = client  # Usamos el cliente autenticado en lugar de un ID hardcodeado
+            
+            # Usar el factory para crear la reserva
             return self._factory.create_reservation(validated_data)
-
+        
         except Exception as e:
             raise serializers.ValidationError({
                 "error": "Error creando reservación",
                 "details": str(e),
-                "solution": "Asegúrate que el usuario esté autenticado y que el servicio sea válido"
+                "solution": "Asegúrate que el usuario esté autenticado"
             })
-
 
 # Sección de serializadores para las tarjetas de usuario   
 class UserCardSerializer(serializers.ModelSerializer):

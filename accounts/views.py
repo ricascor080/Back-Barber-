@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import action, api_view, permission_classes
 from django.shortcuts import render, redirect
 from django.contrib.auth import logout
+from django.contrib.auth.hashers import make_password
 
 from .models import CustomUser, BarberSchedule, Service, Reservation, Payment, UserCard
 from .serializers import (
@@ -16,7 +17,6 @@ from accounts.permissions import IsAdmin, UserPermissionsHelper
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 
-
 def home(request):
     return render(request, 'home.html')
 
@@ -24,10 +24,8 @@ def logout_view(request):
     logout(request)
     return redirect('/')
 
-
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-
 
 class BarberScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = BarberScheduleSerializer
@@ -35,7 +33,7 @@ class BarberScheduleViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAdmin()]
+            return [AllowAny()]
         return [AllowAny()]
 
     def list(self, request, *args, **kwargs):
@@ -46,7 +44,6 @@ class BarberScheduleViewSet(viewsets.ModelViewSet):
             schedules = BarberSchedule.objects.all()
         serializer = self.get_serializer(schedules, many=True)
         return Response(serializer.data)
-
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -62,10 +59,39 @@ class UserViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(role=role)
         return queryset
 
-    @action(detail=False, methods=['get'], url_path='me')
-    def get_current_user(self, request):
+    @action(detail=False, methods=['get', 'patch'], url_path='me')
+    def me(self, request):
+     if request.method == 'GET':
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
+
+     elif request.method == 'PATCH':
+        serializer = self.get_serializer(
+            request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'], url_path='update-password-by-email', permission_classes=[AllowAny])
+    def update_password_by_email(self, request):
+        email = request.data.get('email')
+        new_password = request.data.get('password')
+
+        if not email or not new_password:
+            return Response(
+                {'detail': 'Se requieren el correo y la nueva contraseña.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = CustomUser.objects.get(email=email)
+            user.password = make_password(new_password)  # Hashea la contraseña
+            user.save()
+            return Response({'detail': 'Contraseña actualizada correctamente.'}, status=status.HTTP_200_OK)
+        except CustomUser.DoesNotExist:
+            return Response({'detail': 'No se encontró un usuario con ese correo.'}, status=status.HTTP_404_NOT_FOUND)
+
 
     def perform_create(self, serializer):
         response = UserPermissionsHelper.perform_create(serializer, self.request)
@@ -79,7 +105,6 @@ class UserViewSet(viewsets.ModelViewSet):
             for field in ['is_active', 'role', 'salary']:
                 serializer.validated_data.pop(field, None)
         serializer.save()
-
 
 class ServiceViewSet(viewsets.ModelViewSet):
     queryset = Service.objects.all()
@@ -96,44 +121,91 @@ class ServiceViewSet(viewsets.ModelViewSet):
             return Service.objects.filter(category=category)
         return super().get_queryset()
 
-
+# Sección de vistas para las reservas y pagos
 class ReservationViewSet(viewsets.ModelViewSet):
     queryset = Reservation.objects.all()
     serializer_class = ReservationSerializer
-
-    def get_permissions(self):
-        return [AllowAny()]  # Desactivado para pruebas (puedes poner IsAuthenticated)
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
-        user = self.request.user
-        if not user.is_authenticated:
-            return Reservation.objects.none()
-        if user.role == 0:
+        # Si es PATCH, devuelve todas las reservas (para permitir cambiar el status)
+        if self.request.method == 'PATCH':
             return Reservation.objects.all()
-        elif user.role == 1:
-            return Reservation.objects.filter(id_barber=user.id)
-        elif user.role == 2:
-            return Reservation.objects.filter(id_client=user.id)
-        return Reservation.objects.none()
 
-    def perform_create(self, serializer):
-        if self.request.user.is_authenticated:
-            client = self.request.user
+        user = self.request.user
+        status_filter = self.request.query_params.get('status')
+        barber_id_param = self.request.query_params.get('barber_id')
+
+        if user.is_authenticated:
+            if user.role == 0:  # Admin
+                queryset = Reservation.objects.all()
+            elif user.role == 1:  # Barbero
+                queryset = Reservation.objects.filter(id_barber=user)
+            elif user.role == 2:  # Cliente
+                queryset = Reservation.objects.filter(id_client=user)
+            else:
+                queryset = Reservation.objects.none()
         else:
-            client = CustomUser.objects.get(id=8)  # Cliente por defecto
+            if barber_id_param:
+                try:
+                    barber = CustomUser.objects.get(id=barber_id_param, role=1)
+                    queryset = Reservation.objects.filter(id_barber=barber)
+                except CustomUser.DoesNotExist:
+                    queryset = Reservation.objects.none()
+            else:
+                queryset = Reservation.objects.none()
 
-        service_id = self.request.data.get('id_service')
-        if not service_id:
-            raise serializers.ValidationError({"id_service": "Este campo es obligatorio."})
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
 
+        return queryset
+
+ 
+
+# Método para manejar la creación de reservas
+def perform_create(self, serializer):
+    """Realiza la creación de la reserva, asignando cliente y barbero."""
+
+    # Determinar el cliente
+    if self.request.user.is_authenticated:
+        client = self.request.user
+    else:
+        client = CustomUser.objects.get(id=8    )
+
+    # Obtener el barbero
+    barber_id = self.request.data.get('id_barber')
+    if barber_id:
         try:
-            service = Service.objects.get(id=service_id)
-        except Service.DoesNotExist:
-            raise serializers.ValidationError({"id_service": "Servicio no válido."})
+            barber = CustomUser.objects.get(id=barber_id, role=1)
+        except CustomUser.DoesNotExist:
+            return Response({"detail": "El barbero no existe."}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        return Response({"detail": "Se requiere el id del barbero."}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer.save(id_client=client, id_service=service)
-        print(f"✅ Reserva parcial creada con cliente {client.id} y servicio {service.id}")
+    # Guardar la reserva
+    reserva = serializer.save(id_client=client, id_barber=barber)
 
+    # ✅ Retornar los datos de la reserva al frontend
+    return Response(self.get_serializer(reserva).data, status=status.HTTP_201_CREATED)
+
+
+def partial_update(self, request, *args, **kwargs):
+            """
+            Override partial_update para permitir solo cambiar el campo 'status' y nada más.
+            """
+            # Limitar los campos que pueden actualizarse por PATCH
+            allowed_fields = {'status'}
+
+            # Comprobar si hay campos no permitidos en la petición
+            data = request.data
+            if any(field not in allowed_fields for field in data.keys()):
+                return Response(
+                    {"detail": "Solo se permite actualizar el campo 'status'."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Llamamos a la implementación base que hace el update
+            return super().partial_update(request, *args, **kwargs)
 
 class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all()
@@ -142,14 +214,12 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Payment.objects.all()
 
-
 class UserCardViewSet(viewsets.ModelViewSet):
     queryset = UserCard.objects.all()
     serializer_class = UserCardSerializer
 
     def get_queryset(self):
         return UserCard.objects.all()
-
 
 @api_view(['POST'])
 def register_social_user(request):
@@ -182,13 +252,17 @@ def register_social_user(request):
 
     return Response({'message': 'Usuario creado correctamente'}, status=status.HTTP_201_CREATED)
 
-
 @api_view(['GET'])
-@permission_classes([AllowAny])  # Para pruebas, cambia a IsAuthenticated luego
+@permission_classes([IsAuthenticated])
 def user_profile(request):
     user = request.user
     return Response({
-        'name': user.get_full_name() or user.username,
+        'id': user.id,
         'email': user.email,
-        'status': 'Activo'
+        'role': user.role,
+        'first_name': user.first_name,
+        'is_active': user.is_active,
+        'phone_number': user.phone_number,
     })
+    
+    
