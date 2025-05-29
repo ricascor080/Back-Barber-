@@ -10,6 +10,7 @@ from accounts.views import (
 )
 from .views import user_profile
 from .views import register_social_user 
+from .views import horas_ocupadas
 
 
 router = DefaultRouter()
@@ -28,6 +29,7 @@ urlpatterns = [
     path('accounts/google/login/token/', GoogleLogin.as_view(), name='google_login_token'),
     path('usuarios/social/', register_social_user),
     path('users/me/', user_profile),
+    
 
     # Rutas REST
     path('', include(router.urls)),

@@ -221,13 +221,28 @@ class UserCardViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return UserCard.objects.all()
 
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    user = request.user
+    return Response({
+        'id': user.id,
+        'email': user.email,
+        'role': user.role,
+        'first_name': user.first_name,
+        'is_active': user.is_active,
+        'phone_number': user.phone_number,
+    })
+
+
+
 @api_view(['POST'])
 def register_social_user(request):
-    from django.contrib.auth.hashers import make_password
-
     email = request.data.get('email')
     name = request.data.get('name')
-    role = 2
+    role = 2  # Usuario normal
 
     if not email:
         return Response({'error': 'Falta el email'}, status=status.HTTP_400_BAD_REQUEST)
@@ -248,21 +263,28 @@ def register_social_user(request):
     )
 
     if not created:
-        return Response({'message': 'Usuario ya existe'}, status=status.HTTP_200_OK)
+        # Si ya existe, actualiza password y activa el usuario
+        user.password = password
+        user.is_active = True
+        user.save()
+        return Response({'message': 'Usuario ya existe, password actualizado'}, status=status.HTTP_200_OK)
 
     return Response({'message': 'Usuario creado correctamente'}, status=status.HTTP_201_CREATED)
-
+    
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_profile(request):
-    user = request.user
-    return Response({
-        'id': user.id,
-        'email': user.email,
-        'role': user.role,
-        'first_name': user.first_name,
-        'is_active': user.is_active,
-        'phone_number': user.phone_number,
-    })
-    
-    
+def horas_ocupadas(request):
+    date_str = request.GET.get('date')
+    barber_id = request.GET.get('id_barber')
+
+    if not date_str or not barber_id:
+        return Response({'error': 'Parámetros requeridos: date, id_barber'}, status=400)
+
+    try:
+        date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({'error': 'Formato de fecha inválido, usa YYYY-MM-DD'}, status=400)
+
+    reservations = Reservation.objects.filter(date__date=date, id_barber=barber_id)
+    horas = [res.date.strftime("%H:%M") for res in reservations]
+
+    return Response(horas)  

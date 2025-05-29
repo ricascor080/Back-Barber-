@@ -8,3 +8,4 @@ urlpatterns = [
     path('recovery-code/', PasswordRecoveryCodeView.as_view(), name='password-recovery-code'),
     path('validate-recovery-code/', ValidateRecoveryCodeView.as_view(), name='validate-recovery-code'),
 ]
+                

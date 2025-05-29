@@ -75,7 +75,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     id_client = serializers.IntegerField(source='id_client.id', read_only=True)  # Añadido para mostrar el email del cliente OPCIONAL NO RECOMENDABLE
     phone_number = serializers.CharField(source='id_client.phone_number', read_only=True)  # Añadido para mostrar el teléfono del cliente
     service_name = serializers.CharField(source='id_service.name', read_only=True)  # Añadido para mostrar el nombre del servicio
-
+    
     _factory = ReservationFactory() # Factory para crear reservas
     _payment_adapter = PaymentAdapter() ## Adaptador para el pago de reservas
 
